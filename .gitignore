@@ -1,0 +1,41 @@
+# environment
+.env
+.env.*
+!.env.example
+
+# python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+.venv/
+venv/
+env/
+.python-version
+
+# tooling caches
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+coverage.xml
+htmlcov/
+
+# runtime artefacts
+data/vector_store/
+data/uploads/
+data/cache/
+logs/
+*.log
+
+# local model caches (fastembed / sentence-transformers)
+.cache/
+models/
+
+# editors / os
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
