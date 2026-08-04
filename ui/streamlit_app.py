@@ -214,67 +214,16 @@ with voice_tab:
         )
     else:
         st.caption(f"assistant `{assistant_id}`")
-        # The Vapi Web SDK runs entirely in the browser and talks to Vapi directly;
-        # Vapi then calls this backend for every turn.
-        st.components.v1.html(
-            f"""
-            <div style="font-family:system-ui,-apple-system,sans-serif">
-              <button id="call-btn" style="
-                  padding:14px 28px;font-size:16px;font-weight:600;border:0;
-                  border-radius:999px;background:#16a34a;color:#fff;cursor:pointer">
-                Start call
-              </button>
-              <span id="status" style="margin-left:14px;color:#64748b;font-size:14px">idle</span>
-              <div id="log" style="
-                  margin-top:16px;padding:12px;border-radius:10px;background:#0f172a0d;
-                  max-height:260px;overflow-y:auto;font-size:14px;line-height:1.5"></div>
-            </div>
-            <script type="module">
-              const {{ default: Vapi }} = await import("https://esm.sh/@vapi-ai/web@2");
-              const vapi = new Vapi("{public_key}");
-              const btn = document.getElementById("call-btn");
-              const status = document.getElementById("status");
-              const log = document.getElementById("log");
-              let active = false;
-
-              const setStatus = (t, c) => {{ status.textContent = t; status.style.color = c || "#64748b"; }};
-              const addLine = (who, text) => {{
-                const row = document.createElement("div");
-                row.innerHTML = `<b>${{who}}:</b> ${{text}}`;
-                log.appendChild(row);
-                log.scrollTop = log.scrollHeight;
-              }};
-
-              btn.onclick = async () => {{
-                if (active) {{ vapi.stop(); return; }}
-                setStatus("connecting...", "#d97706");
-                try {{ await vapi.start("{assistant_id}"); }}
-                catch (e) {{ setStatus("failed: " + e.message, "#dc2626"); }}
-              }};
-
-              vapi.on("call-start", () => {{
-                active = true;
-                btn.textContent = "End call";
-                btn.style.background = "#dc2626";
-                setStatus("connected — speak now", "#16a34a");
-              }});
-              vapi.on("call-end", () => {{
-                active = false;
-                btn.textContent = "Start call";
-                btn.style.background = "#16a34a";
-                setStatus("call ended");
-              }});
-              vapi.on("speech-start", () => setStatus("assistant speaking", "#2563eb"));
-              vapi.on("speech-end", () => setStatus("listening", "#16a34a"));
-              vapi.on("message", (m) => {{
-                if (m.type === "transcript" && m.transcriptType === "final") {{
-                  addLine(m.role === "user" ? "You" : "Aria", m.transcript);
-                }}
-              }});
-              vapi.on("error", (e) => setStatus("error: " + (e?.message || e), "#dc2626"));
-            </script>
-            """,
-            height=420,
+        # Streamlit renders custom HTML in a sandboxed iframe with no
+        # allow="microphone" policy, so getUserMedia is refused there and the Vapi
+        # SDK fails with an opaque error. The call UI is therefore served by the
+        # API as a top-level page; this tab just links to it.
+        call_url = f"{API_BASE}/api/v1/vapi/call"
+        st.link_button("🎤 Open the call page", call_url, type="primary")
+        st.caption(
+            "Opens in a new tab. A browser only grants microphone access to a "
+            "top-level page, never to Streamlit's sandboxed iframe — which is why "
+            "the embedded widget could not work."
         )
         st.caption(
             "Turn-by-turn transcripts also arrive at your webhook and are readable "

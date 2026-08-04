@@ -111,5 +111,25 @@ async def run(args: argparse.Namespace) -> int:
         await client.aclose()
 
 
+def main() -> int:
+    """Turn expected failures into one readable line instead of a traceback.
+
+    A rejected field or a bad key is a configuration mistake, not a crash, and a
+    60-line httpx stack buries the one sentence that says what to fix.
+    """
+    from app.core.exceptions import AppError
+
+    try:
+        return asyncio.run(run(parse_args()))
+    except AppError as exc:
+        print(f"\nERROR: {exc.message}", file=sys.stderr)
+        if body := exc.details.get("body"):
+            print(f"vapi said: {body}", file=sys.stderr)
+        return 1
+    except KeyboardInterrupt:
+        print("\ninterrupted", file=sys.stderr)
+        return 130
+
+
 if __name__ == "__main__":
-    raise SystemExit(asyncio.run(run(parse_args())))
+    raise SystemExit(main())

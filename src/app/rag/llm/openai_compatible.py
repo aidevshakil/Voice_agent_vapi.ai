@@ -25,10 +25,15 @@ class OpenAICompatibleProvider(LLMProvider):
         temperature: float,
         max_tokens: int,
         name: str = "openai_compatible",
+        supports_stream_options: bool = False,
     ) -> None:
         super().__init__(model, temperature=temperature, max_tokens=max_tokens)
         self._client = client
         self.name = name
+        # Opt-in, not assumed: `stream_options` is an OpenAI extension and the
+        # groq SDK raises TypeError on the unexpected kwarg, which would fail
+        # every streamed turn -- i.e. every Vapi custom-llm call.
+        self._supports_stream_options = supports_stream_options
 
     def _payload(
         self,
@@ -46,7 +51,7 @@ class OpenAICompatibleProvider(LLMProvider):
             "max_tokens": tokens,
             "stream": stream,
         }
-        if stream:
+        if stream and self._supports_stream_options:
             # Ask for usage on the final chunk so we can log cost per turn.
             payload["stream_options"] = {"include_usage": True}
         return payload
