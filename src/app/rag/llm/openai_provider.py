@@ -30,4 +30,5 @@ def build_openai_provider(
         temperature=temperature,
         max_tokens=max_tokens,
         name="openai",
+        supports_stream_options=True,
     )

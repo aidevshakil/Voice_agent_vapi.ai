@@ -101,7 +101,10 @@ class VapiClient:
             "silenceTimeoutSeconds": 20,
             "responseDelaySeconds": 0.3,
             "llmRequestDelaySeconds": 0.1,
-            "numWordsToInterruptAssistantSpeech": 2,
+            # Interruption sensitivity moved under stopSpeakingPlan; the old
+            # top-level numWordsToInterruptAssistantSpeech is now rejected with
+            # "property should not exist" and fails the whole request.
+            "stopSpeakingPlan": {"numWords": 2},
             "backgroundDenoisingEnabled": True,
             "endCallMessage": "Thanks for calling. Goodbye!",
         }
