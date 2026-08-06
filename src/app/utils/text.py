@@ -180,13 +180,12 @@ class SentenceBuffer:
 
     __slots__ = ("_buffer", "_flush_at", "_transform")
 
-    def __init__(self, transform: Callable[[str], str] | None = None, flush_at: int = 240) -> None:
+    def __init__(self, transform: Callable[[str], str] | None = None, flush_at: int = 60) -> None:
         self._buffer = ""
         self._flush_at = flush_at
         self._transform = transform or to_speech_friendly
 
     def push(self, delta: str) -> list[str]:
-        """Add a delta; return any sentences that are now complete."""
         self._buffer += delta
         released: list[str] = []
 
@@ -200,15 +199,14 @@ class SentenceBuffer:
         return released
 
     def _boundary(self) -> int | None:
-        """Index just past the earliest real sentence end, if any."""
         buffer = self._buffer
         for index, char in enumerate(buffer):
             if char == "\n":
                 return index + 1
-            if char not in ".!?" or index + 1 >= len(buffer):
+            if char not in ".!?,;:" or index + 1 >= len(buffer):
                 continue
             if not buffer[index + 1].isspace():
-                continue  # "3.5" / "a.m." mid-token
+                continue
             if char == "." and _is_false_stop(buffer, index):
                 continue
             return index + 1

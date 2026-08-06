@@ -44,6 +44,7 @@ async def ready(response: Response, container: ContainerDep) -> HealthResponse:
     components["vapi"] = {
         "configured": container.vapi.configured,
         "assistant_id": container.settings.vapi.assistant_id,
+        "public_key": container.settings.vapi.public_key,
         "webhook_secret_set": container.settings.vapi.webhook_secret is not None,
     }
     components["sessions"] = await container.conversations.stats()

@@ -77,26 +77,27 @@ async def verify_vapi_signature(
     container: ContainerDep,
     x_vapi_secret: Annotated[str | None, Header()] = None,
     x_vapi_signature: Annotated[str | None, Header()] = None,
+    authorization: Annotated[str | None, Header()] = None,
 ) -> None:
-    """Validate the shared secret Vapi attaches to server requests.
-
-    Configured on the assistant as ``server.secret``; Vapi echoes it back in the
-    ``x-vapi-secret`` header. Without it, anyone who learns your webhook URL can
-    drive your LLM and read your knowledge base.
-    """
     secret = container.settings.vapi.webhook_secret
     if secret is None:
         if container.settings.app.is_production:
             raise AuthenticationError(
                 "VAPI_WEBHOOK_SECRET must be set when APP_ENV=production"
             )
-        return  # unauthenticated local development
+        return
 
     expected = secret.get_secret_value()
     presented = x_vapi_secret or x_vapi_signature
+    if not presented and authorization:
+        scheme, _, token = authorization.partition(" ")
+        if scheme.lower() == "bearer":
+            presented = token.strip()
+
     if not presented or not hmac.compare_digest(presented, expected):
         logger.warning("rejected vapi webhook with invalid secret")
         raise AuthenticationError("invalid Vapi webhook secret")
+
 
 
 AuthDep = Depends(require_api_key)

@@ -1,10 +1,4 @@
 #!/usr/bin/env bash
-# One command to run the whole stack: API + ngrok tunnel + Vapi provisioning + UI.
-#
-#   ./start.sh          API + UI only (text chat, no tunnel needed)
-#   ./start.sh --voice  also open a tunnel and re-point the Vapi assistant
-#
-# Ctrl+C stops everything it started.
 
 set -uo pipefail
 cd "$(dirname "$0")"
@@ -32,13 +26,11 @@ cleanup() {
 }
 trap cleanup INT TERM
 
-# Read one key out of .env without exporting the whole file (values may contain #).
 envval() {
   [ -f .env ] || return 0
   sed -n "s/^$1=//p" .env | head -1 | sed 's/[[:space:]]*#.*$//' | tr -d '"'\''' | xargs 2>/dev/null
 }
 
-# Wait until a URL answers, or give up.
 wait_http() {
   local url=$1 tries=${2:-45}
   for _ in $(seq 1 "$tries"); do
@@ -61,7 +53,6 @@ free_port() {
 
 mkdir -p "$LOGS"
 
-# --------------------------------------------------------------- dependencies
 step "checking environment"
 if [ ! -x "$PY" ]; then
   c_warn "  no $VENV - creating it (one time, ~2 min)"
@@ -83,13 +74,12 @@ if [ -z "$(envval GROQ_API_KEY)" ]; then
 fi
 c_ok "  GROQ_API_KEY present"
 
-# ------------------------------------------------------------------ api server
 step "starting API on :8000"
 free_port 8000
 "$PY" -m uvicorn app.main:app --app-dir src --port 8000 --no-access-log > "$LOGS/app.log" 2>&1 &
 PIDS+=($!)
 if wait_http http://127.0.0.1:8000/api/v1/health/live 60; then
-  c_ok "  API up (first boot loads the embedding model, so this can take ~20s)"
+  c_ok "  API up"
 else
   c_err "  API failed to start. Last lines of $LOGS/app.log:"
   tail -20 "$LOGS/app.log"
@@ -104,7 +94,6 @@ else
   c_ok "  knowledge base: $VECTORS chunks indexed"
 fi
 
-# ----------------------------------------------------------------- voice setup
 NGROK_URL=""
 if [ "$VOICE" = "1" ]; then
   step "opening ngrok tunnel"
@@ -128,7 +117,6 @@ print(t[0]['public_url'] if t else '')
       c_err "  tunnel did not come up. Check $LOGS/ngrok.log (auth token set?)"
     else
       c_ok "  tunnel: $NGROK_URL"
-      # Persist it so the server and future runs agree on the public URL.
       if grep -q '^VAPI_SERVER_URL=' .env; then
         sed -i '' "s|^VAPI_SERVER_URL=.*|VAPI_SERVER_URL=$NGROK_URL|" .env
       else
@@ -148,7 +136,6 @@ print(t[0]['public_url'] if t else '')
         c_err "  provisioning failed - see $LOGS/vapi.log"
       fi
 
-      # The server reads .env at import time, so restart it to pick up the URL.
       step "restarting API so it sees the new VAPI_SERVER_URL"
       free_port 8000
       "$PY" -m uvicorn app.main:app --app-dir src --port 8000 --no-access-log > "$LOGS/app.log" 2>&1 &
@@ -158,38 +145,37 @@ print(t[0]['public_url'] if t else '')
   fi
 fi
 
-# --------------------------------------------------------------------- the ui
-step "starting Streamlit on :8501"
-free_port 8501
-# Streamlit reads os.environ, not .env, so the voice tab needs these exported.
-export VAPI_PUBLIC_KEY="$(envval VAPI_PUBLIC_KEY)"
-export VAPI_ASSISTANT_ID="$(envval VAPI_ASSISTANT_ID)"
-export API_BASE_URL="http://localhost:8000"
-"$PY" -m streamlit run ui/streamlit_app.py \
-  --server.port 8501 --server.headless true > "$LOGS/ui.log" 2>&1 &
-PIDS+=($!)
-wait_http http://127.0.0.1:8501 45 && c_ok "  UI up"
+WEB_UI_URL=""
+if command -v npm >/dev/null 2>&1; then
+  step "starting React Web UI on :5173"
+  free_port 5173
+  npm run dev --prefix frontend > "$LOGS/web_ui.log" 2>&1 &
+  PIDS+=($!)
+  if wait_http http://127.0.0.1:5173 15; then
+    c_ok "  React Web UI up"
+    WEB_UI_URL="http://localhost:5173"
+  fi
+fi
 
-# -------------------------------------------------------------------- summary
 cat <<EOF
 
 $(printf '\033[1m%s\033[0m' "─────────────────────────────────────────────────────────")
-  UI          http://localhost:8501
-  API docs    http://localhost:8000/docs
-  health      http://localhost:8000/api/v1/health/ready
+  Web UI    ${WEB_UI_URL:-http://localhost:5173}
+  API docs  http://localhost:8000/docs
+  health    http://localhost:8000/api/v1/health/ready
 EOF
-[ -n "$NGROK_URL" ] && echo "  tunnel      $NGROK_URL"
+
+[ -n "$NGROK_URL" ] && echo "  tunnel    $NGROK_URL"
 if [ "$VOICE" = "1" ] && [ -n "$NGROK_URL" ]; then
-  echo "  voice       UI -> 'Live voice' tab -> Start call"
+  echo "  voice     Web UI -> Start Call"
 else
-  echo "  voice       not started (re-run with: ./start.sh --voice)"
+  echo "  voice     not started (re-run with: ./start.sh --voice)"
 fi
 cat <<EOF
-  logs        $LOGS/
+  logs      $LOGS/
 $(printf '\033[1m%s\033[0m' "─────────────────────────────────────────────────────────")
 
 Press Ctrl+C to stop everything.
 EOF
 
-# Hold the terminal open so the trap can clean up on Ctrl+C.
 while true; do sleep 3600; done
