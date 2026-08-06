@@ -99,8 +99,8 @@ class VapiClient:
             # Keep replies short and let the caller interrupt -- both matter more
             # for perceived quality than raw model capability.
             "silenceTimeoutSeconds": 20,
-            "responseDelaySeconds": 0.3,
-            "llmRequestDelaySeconds": 0.1,
+            "responseDelaySeconds": 0.05,
+            "llmRequestDelaySeconds": 0.05,
             # Interruption sensitivity moved under stopSpeakingPlan; the old
             # top-level numWordsToInterruptAssistantSpeech is now rejected with
             # "property should not exist" and fails the whole request.
@@ -115,8 +115,6 @@ class VapiClient:
                 "url": f"{base}/api/v1/vapi",
                 "model": self._settings.llm.model,
                 "temperature": self._settings.llm.temperature,
-                # Our endpoint injects the grounded system prompt itself; this
-                # message is what Vapi shows in its own UI.
                 "messages": [
                     {
                         "role": "system",

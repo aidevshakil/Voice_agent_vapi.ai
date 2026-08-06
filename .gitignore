@@ -34,8 +34,15 @@ logs/
 .cache/
 models/
 
+# node / frontend
+node_modules/
+frontend/dist/
+frontend/node_modules/
+.run-logs/
+
 # editors / os
 .vscode/
 .idea/
 .DS_Store
 Thumbs.db
+
