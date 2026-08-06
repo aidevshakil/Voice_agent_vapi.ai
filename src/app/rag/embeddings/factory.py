@@ -14,7 +14,9 @@ def build_embedding_provider(settings: Settings) -> EmbeddingProvider:
     if provider == "fastembed":
         from app.rag.embeddings.fastembed_provider import FastEmbedProvider
 
-        return FastEmbedProvider(model=cfg.model, batch_size=cfg.batch_size)
+        return FastEmbedProvider(
+            model=cfg.model, batch_size=cfg.batch_size, cache_dir=cfg.cache_dir
+        )
 
     if provider == "openai":
         from app.rag.embeddings.openai_provider import OpenAIEmbeddingProvider

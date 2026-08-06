@@ -1,0 +1,95 @@
+# Render blueprint for the FastAPI backend.
+#
+# The React UI is not here -- it deploys to Vercel from ./frontend and calls
+# this service over CORS (see docs/DEPLOYMENT.md).
+#
+# Apply with: Render dashboard -> New -> Blueprint -> pick this repo.
+
+services:
+  - type: web
+    name: voice-rag-api
+    runtime: python
+    plan: free
+    region: oregon
+    healthCheckPath: /api/v1/health/live
+
+    # `pip install -e .` puts the `app` package on the path; ingest.py then
+    # builds the Chroma index from the committed data/documents. This has to
+    # happen at build time because data/vector_store/ is gitignored -- without
+    # it the service starts with an empty knowledge base and answers nothing.
+    buildCommand: |
+      pip install --upgrade pip
+      pip install -r requirements.txt
+      pip install -e .
+      python scripts/ingest.py --reset
+
+    # $PORT is assigned by Render; binding anywhere else fails the health check.
+    startCommand: uvicorn app.main:app --app-dir src --host 0.0.0.0 --port $PORT
+
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.12"
+      - key: APP_ENV
+        value: production
+      - key: APP_LOG_JSON
+        value: "true"
+      - key: APP_RELOAD
+        value: "false"
+      # The Vercel domain(s) allowed to call this API. Without the exact origin
+      # here the browser blocks every request. Add preview domains too if you
+      # use them.
+      - key: APP_CORS_ORIGINS
+        sync: false
+
+      - key: LLM_PROVIDER
+        value: groq
+      - key: LLM_MODEL
+        value: llama-3.1-8b-instant
+      - key: GROQ_API_KEY
+        sync: false
+
+      - key: EMBEDDING_PROVIDER
+        value: fastembed
+      - key: EMBEDDING_MODEL
+        value: BAAI/bge-small-en-v1.5
+      - key: EMBEDDING_DIMENSIONS
+        value: "384"
+      # Inside the project so the build-time download survives into the running
+      # container. Without this fastembed caches to the system temp dir, which
+      # the build does not share -- and the ~130 MB fetch lands on your first
+      # question instead.
+      - key: EMBEDDING_CACHE_DIR
+        value: ./data/model_cache
+
+      - key: VECTOR_STORE_PROVIDER
+        value: chroma
+      - key: VECTOR_STORE_COLLECTION
+        value: voice_kb
+      - key: VECTOR_STORE_PATH
+        value: ./data/vector_store
+
+      - key: RAG_MIN_RELEVANCE_SCORE
+        value: "0.75"
+      - key: RAG_TOP_K
+        value: "4"
+
+      # Voice. VAPI_SERVER_URL is this service's own public URL -- fill it in
+      # after the first deploy, then re-run scripts/setup_vapi_assistant.py so
+      # the assistant points here instead of at an ngrok tunnel.
+      - key: VAPI_SERVER_URL
+        sync: false
+      - key: VAPI_API_KEY
+        sync: false
+      - key: VAPI_PUBLIC_KEY
+        sync: false
+      - key: VAPI_ASSISTANT_ID
+        sync: false
+      # Required: APP_ENV=production makes an unset webhook secret a start-up error.
+      - key: VAPI_WEBHOOK_SECRET
+        sync: false
+      - key: VAPI_TRANSCRIBER_LANGUAGE
+        value: en
+      - key: VAPI_TRANSCRIBER_KEYTERMS
+        sync: false
+      - key: VAPI_TRANSCRIBER_CONFIDENCE_THRESHOLD
+        value: "0.3"

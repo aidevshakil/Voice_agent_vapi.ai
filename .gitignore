@@ -1,6 +1,4 @@
 # environment
-.env
-.env.*
 !.env.example
 
 # python
@@ -27,6 +25,7 @@ htmlcov/
 data/vector_store/
 data/uploads/
 data/cache/
+data/model_cache/
 logs/
 *.log
 
@@ -41,8 +40,8 @@ frontend/node_modules/
 .run-logs/
 
 # editors / os
-.vscode/
 .idea/
 .DS_Store
 Thumbs.db
 
+config.bat

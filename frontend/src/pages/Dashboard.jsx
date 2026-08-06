@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { PhoneCall, PhoneOff, Mic, MicOff, Send, Bot, User, BookOpen, Trash2, ChevronDown, ChevronRight, Sliders, Volume2 } from 'lucide-react';
 import Vapi from '@vapi-ai/web';
 import VoiceVisualizer from '../components/VoiceVisualizer.jsx';
+import { apiFetch } from '../lib/api.js';
 
 const DEFAULT_PUBLIC_KEY = '4be20fdb-ec75-458a-9a3d-d3128f76d54b';
 const DEFAULT_ASSISTANT_ID = '20e76e61-bbee-49e6-ab91-472cad59c30f';
@@ -34,7 +35,7 @@ export default function Dashboard() {
   useEffect(() => {
     const fetchConfig = async () => {
       try {
-        const res = await fetch('/api/v1/health/ready');
+        const res = await apiFetch('/api/v1/health/ready');
         const data = await res.json();
         const vapiInfo = data?.components?.vapi || {};
         if (vapiInfo.public_key && vapiInfo.assistant_id) {
@@ -182,7 +183,7 @@ export default function Dashboard() {
     setMessages((prev) => [...prev, { role: 'assistant', content: '', citations: [] }]);
 
     try {
-      const response = await fetch('/api/v1/rag/query/stream', {
+      const response = await apiFetch('/api/v1/rag/query/stream', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -227,7 +228,7 @@ export default function Dashboard() {
       }
 
       try {
-        const citRes = await fetch('/api/v1/rag/retrieve', {
+        const citRes = await apiFetch('/api/v1/rag/retrieve', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ query: prompt, top_k: topK, use_cache: useCache }),
