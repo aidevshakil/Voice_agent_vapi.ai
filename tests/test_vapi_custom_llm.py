@@ -141,3 +141,89 @@ def test_models_endpoint(seeded_client: TestClient):
     body = seeded_client.get("/api/v1/vapi/models").json()
     assert body["object"] == "list"
     assert body["data"][0]["id"] == "fake-model"
+
+
+# ------------------------------------------------------- assistant provisioning
+def test_custom_llm_url_carries_the_shared_secret(container):
+    """Vapi sends `server.secret` to the webhook only.
+
+    Without an explicit header on the model block, every custom-llm turn arrives
+    unauthenticated and the endpoint 401s, killing the call with
+    `pipeline-error-custom-llm-401-unauthorized`.
+    """
+    from pydantic import SecretStr
+
+    container.settings.vapi.webhook_secret = SecretStr("s3cret")
+    payload = container.vapi.build_assistant_payload(server_url="https://example.test")
+
+    assert payload["model"]["provider"] == "custom-llm"
+    assert payload["model"]["headers"]["x-vapi-secret"] == "s3cret"
+    assert payload["server"]["secret"] == "s3cret"
+
+
+def test_tool_mode_server_override_carries_the_shared_secret(container):
+    from pydantic import SecretStr
+
+    container.settings.vapi.webhook_secret = SecretStr("s3cret")
+    payload = container.vapi.build_assistant_payload(
+        server_url="https://example.test", use_custom_llm=False
+    )
+
+    tool = payload["model"]["tools"][0]
+    assert tool["server"]["secret"] == "s3cret"
+
+
+def test_no_secret_configured_means_no_auth_fields(container):
+    container.settings.vapi.webhook_secret = None
+    payload = container.vapi.build_assistant_payload(server_url="https://example.test")
+
+    assert "headers" not in payload["model"]
+    assert "secret" not in payload["server"]
+
+
+# ------------------------------------------------------------------- transcriber
+def test_nova3_uses_keyterm_and_keeps_phrases(container):
+    container.settings.vapi.transcriber_model = "nova-3"
+    container.settings.vapi.transcriber_keyterms = ["Shakil Ahamed", "FastAPI"]
+
+    transcriber = container.vapi.build_assistant_payload(
+        server_url="https://example.test"
+    )["transcriber"]
+
+    assert transcriber["keyterm"] == ["Shakil Ahamed", "FastAPI"]
+    assert "keywords" not in transcriber
+
+
+def test_older_models_split_phrases_into_single_token_keywords(container):
+    """Vapi validates `keywords` against a single-token regex; a phrase 400s."""
+    container.settings.vapi.transcriber_model = "nova-2-phonecall"
+    container.settings.vapi.transcriber_keyterms = ["Shakil Ahamed", "FastAPI"]
+
+    transcriber = container.vapi.build_assistant_payload(
+        server_url="https://example.test"
+    )["transcriber"]
+
+    assert transcriber["keywords"] == ["Shakil", "Ahamed", "FastAPI"]
+    assert "keyterm" not in transcriber
+    assert all(" " not in word for word in transcriber["keywords"])
+
+
+def test_no_keyterms_configured_sends_no_boost_field(container):
+    container.settings.vapi.transcriber_keyterms = []
+    transcriber = container.vapi.build_assistant_payload(
+        server_url="https://example.test"
+    )["transcriber"]
+
+    assert "keyterm" not in transcriber and "keywords" not in transcriber
+
+
+def test_endpointing_gives_an_unfinished_sentence_room(container):
+    """A pause for breath must not end the caller's turn mid-question."""
+    payload = container.vapi.build_assistant_payload(server_url="https://example.test")
+
+    plan = payload["startSpeakingPlan"]
+    assert plan["transcriptionEndpointingPlan"]["onNoPunctuationSeconds"] >= 1.5
+    assert plan["smartEndpointingPlan"]["provider"] == "livekit"
+    # Retired fields fail schema validation on newer Vapi API versions.
+    assert "responseDelaySeconds" not in payload
+    assert "backgroundDenoisingEnabled" not in payload
