@@ -118,6 +118,17 @@ class VapiSettings(BaseModel):
     voice_id: str = "burt"
     transcriber_provider: str = "deepgram"
     transcriber_model: str = "nova-3"
+    # Accent matters more than model choice here. "en" is generic English; the
+    # regional variants ("en-IN", "en-GB", "en-AU", ...) are separately tuned and
+    # usually beat "en" for a speaker that matches them.
+    transcriber_language: str = "en"
+    # Proper nouns and jargon the transcriber has no reason to know -- names,
+    # product names, frameworks. Deepgram boosts these heavily; without them a
+    # name like "Shakil Ahamed" comes back as noise.
+    transcriber_keyterms: CsvList = Field(default_factory=list)
+    # Deepgram discards words below this confidence. The 0.4 default silently
+    # drops accented speech; lower it if words go missing entirely.
+    transcriber_confidence_threshold: float = Field(default=0.4, ge=0.0, le=1.0)
     server_url: str | None = None
     base_url: str = "https://api.vapi.ai"
 

@@ -69,6 +69,15 @@ back on every request as the `x-vapi-secret` header, and this backend compares i
 in constant time. **Without it, anyone who discovers your webhook URL can drive
 your LLM and read your knowledge base.** It is enforced when `APP_ENV=production`.
 
+`server.secret` covers the *webhook* URL only. The `custom-llm` URL is a separate
+destination that Vapi calls with no credentials of its own, so
+`build_assistant_payload` also puts the same secret in `model.headers` — otherwise
+every turn 401s and the call dies with
+`pipeline-error-custom-llm-401-unauthorized`. Tool-mode does the same on the
+tool's `server` block, which overrides the assistant's rather than inheriting it.
+Change the secret in `.env` and you must re-run `setup_vapi_assistant.py`, since
+the assistant holds its own copy.
+
 ---
 
 ## Step 3 — create the assistant
@@ -250,21 +259,46 @@ VAPI_VOICE_PROVIDER=11labs        # 11labs | playht | openai | azure | deepgram 
 VAPI_VOICE_ID=burt
 VAPI_TRANSCRIBER_PROVIDER=deepgram
 VAPI_TRANSCRIBER_MODEL=nova-3
+VAPI_TRANSCRIBER_LANGUAGE=en
+VAPI_TRANSCRIBER_KEYTERMS=Acme Corp,FastAPI,Kubernetes
+VAPI_TRANSCRIBER_CONFIDENCE_THRESHOLD=0.4
 ```
 
 Re-run `setup_vapi_assistant.py` after changing these. Browse voices in the
 dashboard under **Voice Library**.
 
-Latency-relevant settings in `build_assistant_payload`, worth understanding
-before you change them:
+### When the transcriber mishears you
 
-| Setting | Default | Effect |
+Three levers, in the order worth trying:
+
+| Lever | Fixes |
+|---|---|
+| `VAPI_TRANSCRIBER_KEYTERMS` | Names and jargon coming back as nonsense. Deepgram has never seen your document's proper nouns; listing them raises recall on those words dramatically. Cheap and safe — start here |
+| `VAPI_TRANSCRIBER_LANGUAGE` | A consistent accent. `en` is generic English; `en-IN`, `en-GB`, `en-AU`, `en-US` are separately tuned and usually beat it for a matching speaker |
+| `VAPI_TRANSCRIBER_CONFIDENCE_THRESHOLD` | Words vanishing entirely rather than coming out wrong. Deepgram drops anything below this; the 0.4 default is unkind to accented speech. Try `0.3`, then `0.25` |
+
+`keyterm` is nova-3 only and accepts phrases. Older models fall back to
+`keywords`, which takes single tokens — `build_assistant_payload` splits phrases
+automatically so switching models can't produce a rejected payload.
+
+### Turn-taking
+
+Set in `build_assistant_payload`. These decide when your turn is considered
+over, and getting them wrong looks exactly like bad transcription — the model
+answers half a question because it stopped listening early.
+
+| Setting | Value | Effect |
 |---|---|---|
-| `responseDelaySeconds` | `0.3` | Wait after the caller stops before replying. Lower feels snappier but interrupts more |
-| `llmRequestDelaySeconds` | `0.1` | Debounce before hitting the LLM — absorbs late transcript corrections |
-| `numWordsToInterruptAssistantSpeech` | `2` | How many words the caller must say to cut the assistant off |
-| `silenceTimeoutSeconds` | `20` | Hang up after this much silence |
-| `backgroundDenoisingEnabled` | `true` | Helps on speakerphone and in noisy rooms |
+| `startSpeakingPlan.waitSeconds` | `0.7` | Silence before the assistant replies |
+| `transcriptionEndpointingPlan.onNoPunctuationSeconds` | `2.0` | Grace on an unfinished sentence. Raise it if you're still being cut off mid-question; lower for snappier replies |
+| `smartEndpointingPlan.provider` | `livekit` | Predicts end-of-turn from the words, not just silence — the reason a pause for breath no longer ends your turn |
+| `stopSpeakingPlan.numWords` | `3` | Words needed to interrupt the assistant. At `2`, a cough cuts it off |
+| `silenceTimeoutSeconds` | `300` | Hang up after this much silence |
+| `backgroundSpeechDenoisingPlan` | Krisp on | Helps on speakerphone and in noisy rooms |
+
+`responseDelaySeconds`, `llmRequestDelaySeconds` and `backgroundDenoisingEnabled`
+are retired from Vapi's assistant schema — `startSpeakingPlan` and
+`backgroundSpeechDenoisingPlan` replace them.
 
 ---
 
@@ -277,6 +311,13 @@ matches it, and that the assistant's `model.url` is current:
 python scripts/setup_vapi_assistant.py --list
 curl https://<your-tunnel>/api/v1/health/ready
 ```
+
+**It mishears you, or answers half a question**
+Read the actual transcript before tuning anything — `endedReason` and the full
+transcript are on the call record (`GET https://api.vapi.ai/call?limit=10`), and
+they tell you which of the two failures you have. Garbled words are a
+transcriber problem; a coherent but truncated question (`"Is"`, `"Please
+check"`) is an endpointing problem. See *Voice and transcriber options* above.
 
 **Webhook returns 401**
 The secret on the assistant doesn't match `VAPI_WEBHOOK_SECRET`. Re-run

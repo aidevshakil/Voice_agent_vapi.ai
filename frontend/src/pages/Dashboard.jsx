@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { PhoneCall, PhoneOff, Mic, MicOff, Send, Bot, User, BookOpen, Trash2, ChevronDown, ChevronRight, Sliders } from 'lucide-react';
+import { PhoneCall, PhoneOff, Mic, MicOff, Send, Bot, User, BookOpen, Trash2, ChevronDown, ChevronRight, Sliders, Volume2 } from 'lucide-react';
 import Vapi from '@vapi-ai/web';
 import VoiceVisualizer from '../components/VoiceVisualizer.jsx';
 
@@ -9,7 +9,7 @@ const DEFAULT_ASSISTANT_ID = '20e76e61-bbee-49e6-ab91-472cad59c30f';
 export default function Dashboard() {
   const [activeTab, setActiveTab] = useState('chat');
   
-  const [vapi, setVapi] = useState(null);
+  const vapiRef = useRef(null);
   const [vapiConfig, setVapiConfig] = useState({
     publicKey: DEFAULT_PUBLIC_KEY,
     assistantId: DEFAULT_ASSISTANT_ID,
@@ -17,6 +17,7 @@ export default function Dashboard() {
   const [callStatus, setCallStatus] = useState('idle');
   const [isMuted, setIsMuted] = useState(false);
   const [volumeLevel, setVolumeLevel] = useState(0);
+  const [isSpeaking, setIsSpeaking] = useState(false);
 
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState('');
@@ -36,23 +37,20 @@ export default function Dashboard() {
         const res = await fetch('/api/v1/health/ready');
         const data = await res.json();
         const vapiInfo = data?.components?.vapi || {};
-        setVapiConfig({
-          publicKey: vapiInfo.public_key || DEFAULT_PUBLIC_KEY,
-          assistantId: vapiInfo.assistant_id || DEFAULT_ASSISTANT_ID,
-        });
-      } catch (e) {
-        setVapiConfig({
-          publicKey: DEFAULT_PUBLIC_KEY,
-          assistantId: DEFAULT_ASSISTANT_ID,
-        });
-      }
+        if (vapiInfo.public_key && vapiInfo.assistant_id) {
+          setVapiConfig({
+            publicKey: vapiInfo.public_key,
+            assistantId: vapiInfo.assistant_id,
+          });
+        }
+      } catch (e) {}
     };
     fetchConfig();
   }, []);
 
   useEffect(() => {
     const key = vapiConfig.publicKey || DEFAULT_PUBLIC_KEY;
-    if (!key) return;
+    if (!key || vapiRef.current) return;
 
     try {
       const vapiInstance = new Vapi(key);
@@ -65,10 +63,51 @@ export default function Dashboard() {
         setCallStatus('idle');
         setVolumeLevel(0);
         setIsMuted(false);
+        setIsSpeaking(false);
+      });
+
+      vapiInstance.on('speech-start', () => {
+        setIsSpeaking(true);
+      });
+
+      vapiInstance.on('speech-end', () => {
+        setIsSpeaking(false);
       });
 
       vapiInstance.on('volume-level', (vol) => {
         setVolumeLevel(vol);
+      });
+
+      // Real-Time Transcript & Conversation Updates
+      vapiInstance.on('message', (message) => {
+        if (!message) return;
+
+        if (message.type === 'conversation-update' && Array.isArray(message.conversation)) {
+          const convMsgs = message.conversation
+            .filter((m) => m && (m.role === 'user' || m.role === 'assistant'))
+            .map((m) => ({
+              role: m.role,
+              content: m.content || m.transcript || (Array.isArray(m.messages) ? m.messages.map(x => x.content).join(' ') : '')
+            }))
+            .filter((m) => m.content.trim().length > 0);
+
+          if (convMsgs.length > 0) {
+            setMessages(convMsgs);
+          }
+        } else if (message.type === 'transcript' && message.transcript) {
+          const role = message.role === 'user' ? 'user' : 'assistant';
+          const text = message.transcript;
+
+          setMessages((prev) => {
+            const last = prev[prev.length - 1];
+            if (last && last.role === role) {
+              const copy = [...prev];
+              copy[copy.length - 1] = { role, content: text };
+              return copy;
+            }
+            return [...prev, { role, content: text }];
+          });
+        }
       });
 
       vapiInstance.on('error', (err) => {
@@ -76,11 +115,7 @@ export default function Dashboard() {
         setCallStatus('idle');
       });
 
-      setVapi(vapiInstance);
-
-      return () => {
-        vapiInstance.stop();
-      };
+      vapiRef.current = vapiInstance;
     } catch (err) {
       console.error('Failed to initialize Vapi instance:', err);
     }
@@ -96,38 +131,40 @@ export default function Dashboard() {
 
     setCallStatus('loading');
 
-    if (vapi) {
-      vapi.start(astId);
-    } else {
+    let instance = vapiRef.current;
+    if (!instance) {
       try {
-        const vapiInstance = new Vapi(key);
-        vapiInstance.on('call-start', () => setCallStatus('active'));
-        vapiInstance.on('call-end', () => {
+        instance = new Vapi(key);
+        instance.on('call-start', () => setCallStatus('active'));
+        instance.on('call-end', () => {
           setCallStatus('idle');
           setVolumeLevel(0);
           setIsMuted(false);
+          setIsSpeaking(false);
         });
-        vapiInstance.on('volume-level', (vol) => setVolumeLevel(vol));
-        vapiInstance.on('error', () => setCallStatus('idle'));
-        setVapi(vapiInstance);
-        vapiInstance.start(astId);
+        instance.on('volume-level', (vol) => setVolumeLevel(vol));
+        instance.on('error', () => setCallStatus('idle'));
+        vapiRef.current = instance;
       } catch (err) {
         setCallStatus('idle');
+        return;
       }
     }
+
+    instance.start(astId);
   };
 
   const handleEndCall = () => {
-    if (vapi) {
-      vapi.stop();
+    if (vapiRef.current) {
+      vapiRef.current.stop();
     }
     setCallStatus('idle');
   };
 
   const handleToggleMute = () => {
-    if (vapi) {
+    if (vapiRef.current) {
       const newMuteState = !isMuted;
-      vapi.setMuted(newMuteState);
+      vapiRef.current.setMuted(newMuteState);
       setIsMuted(newMuteState);
     }
   };
@@ -223,6 +260,7 @@ export default function Dashboard() {
 
   return (
     <div style={{ display: 'flex', gap: 20, padding: 24, height: 'calc(100vh - 65px)', maxWidth: 1400, margin: '0 auto' }}>
+      {/* Left Column: Voice Assistant Panel */}
       <div className="glass-card" style={{ width: 340, display: 'flex', flexDirection: 'column', padding: 24, flexShrink: 0 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16 }}>
           <div style={{
@@ -234,18 +272,25 @@ export default function Dashboard() {
           <h2 style={{ fontSize: '1.1rem', fontWeight: 700, color: '#fff' }}>Voice Assistant</h2>
         </div>
 
-        <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        {/* Real-time Audio Visualizer */}
+        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
           <VoiceVisualizer isActive={callStatus === 'active'} volume={volumeLevel} />
+          {isSpeaking && (
+            <div style={{ marginTop: 12, display: 'flex', alignItems: 'center', gap: 6, fontSize: '0.8rem', color: 'var(--accent-cyan)', fontWeight: 600 }}>
+              <Volume2 size={16} className="spin" /> Assistant speaking...
+            </div>
+          )}
         </div>
 
+        {/* Controls */}
         <div style={{ marginTop: 'auto', display: 'flex', flexDirection: 'column', gap: 12 }}>
           {callStatus === 'idle' ? (
             <button className="btn btn-primary" onClick={handleStartCall} style={{ width: '100%', padding: '12px 20px', borderRadius: 24 }}>
-              <PhoneCall size={18} /> Start Voice Call
+              <PhoneCall size={18} /> Start Real-Time Voice Call
             </button>
           ) : callStatus === 'loading' ? (
             <button className="btn btn-secondary" disabled style={{ width: '100%', padding: '12px 20px', borderRadius: 24 }}>
-              Connecting to Mic...
+              Connecting WebRTC...
             </button>
           ) : (
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
@@ -259,11 +304,12 @@ export default function Dashboard() {
             </div>
           )}
           <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', textAlign: 'center', marginTop: 4 }}>
-            {callStatus === 'active' ? '🎙️ Live voice call connected' : 'Sub-second real-time grounded speech turn-taking'}
+            {callStatus === 'active' ? '🎙️ WebRTC Real-Time Full-Duplex Voice Active' : 'Sub-second real-time grounded speech turn-taking'}
           </p>
         </div>
       </div>
 
+      {/* Right Column: Chat & Sources Panel */}
       <div className="glass-card" style={{ flex: 1, display: 'flex', flexDirection: 'column', padding: 0, overflow: 'hidden' }}>
         <div style={{ padding: '12px 20px', borderBottom: '1px solid var(--border-color)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: 'rgba(255,255,255,0.02)' }}>
           <div style={{ display: 'flex', gap: 8 }}>
@@ -276,7 +322,7 @@ export default function Dashboard() {
                 border: '1px solid var(--border-color)', cursor: 'pointer'
               }}
             >
-              💬 Text Chat
+              💬 Live Transcript Feed
             </button>
             <button
               onClick={() => setActiveTab('sources')}
@@ -303,8 +349,8 @@ export default function Dashboard() {
             {messages.length === 0 ? (
               <div style={{ margin: 'auto', textAlign: 'center', color: 'var(--text-muted)', maxWidth: 360 }}>
                 <Bot size={36} color="var(--accent-cyan)" style={{ marginBottom: 10 }} />
-                <h3 style={{ color: '#fff', fontSize: '1rem', marginBottom: 4 }}>Real-Time Document Assistant</h3>
-                <p style={{ fontSize: '0.84rem' }}>Ask any question about your documents. Answers stream sentence-by-sentence with source citations.</p>
+                <h3 style={{ color: '#fff', fontSize: '1rem', marginBottom: 4 }}>Real-Time Speech & Text Stream</h3>
+                <p style={{ fontSize: '0.84rem' }}>Start a voice call or send a text message. Transcripts update live in real-time.</p>
               </div>
             ) : (
               messages.map((msg, idx) => (
