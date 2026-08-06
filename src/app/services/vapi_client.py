@@ -98,7 +98,7 @@ class VapiClient:
             ],
             # Keep replies short and let the caller interrupt -- both matter more
             # for perceived quality than raw model capability.
-            "silenceTimeoutSeconds": 20,
+            "silenceTimeoutSeconds": 300,
             "responseDelaySeconds": 0.05,
             "llmRequestDelaySeconds": 0.05,
             # Interruption sensitivity moved under stopSpeakingPlan; the old
