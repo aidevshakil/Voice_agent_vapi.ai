@@ -18,6 +18,24 @@ from app.core.logging import get_logger
 logger = get_logger(__name__)
 
 
+def _keyterm_field(model: str) -> str:
+    """Deepgram renamed keyword boosting between model generations.
+
+    nova-3 uses ``keyterm``, which accepts multi-word phrases. Older models use
+    ``keywords``, which Vapi validates against a single-token regex -- sending a
+    phrase there fails the whole assistant update.
+    """
+    return "keyterm" if model.startswith("nova-3") else "keywords"
+
+
+def _server_block(url: str, secret: Any | None) -> dict[str, Any]:
+    """A Vapi ``server`` object, with the shared secret when one is configured."""
+    block: dict[str, Any] = {"url": url}
+    if secret is not None:
+        block["secret"] = secret.get_secret_value()
+    return block
+
+
 class VapiClient:
     """Thin async wrapper over the Vapi API with a lazily-created HTTP client."""
 
@@ -79,33 +97,57 @@ class VapiClient:
                 "VAPI_SERVER_URL must be a public HTTPS URL (e.g. an ngrok tunnel)."
             )
 
+        transcriber: dict[str, Any] = {
+            "provider": cfg.transcriber_provider,
+            "model": cfg.transcriber_model,
+            "language": cfg.transcriber_language,
+            "confidenceThreshold": cfg.transcriber_confidence_threshold,
+        }
+        if cfg.transcriber_keyterms:
+            field = _keyterm_field(cfg.transcriber_model)
+            terms = cfg.transcriber_keyterms
+            if field == "keywords":
+                # Older models take single tokens only, so phrases are split.
+                terms = [word for term in terms for word in term.split()]
+            transcriber[field] = terms
+
         payload: dict[str, Any] = {
             "name": name,
             "firstMessage": first_message
             or "Hi, I'm Aria. Ask me anything about the documents I've been given.",
-            "transcriber": {
-                "provider": cfg.transcriber_provider,
-                "model": cfg.transcriber_model,
-                "language": "en",
-            },
+            "transcriber": transcriber,
             "voice": {"provider": cfg.voice_provider, "voiceId": cfg.voice_id},
-            "server": {"url": f"{base}/api/v1/vapi/webhook"},
+            "server": _server_block(f"{base}/api/v1/vapi/webhook", cfg.webhook_secret),
             "serverMessages": [
                 "status-update",
                 "end-of-call-report",
                 "transcript",
                 "tool-calls",
             ],
-            # Keep replies short and let the caller interrupt -- both matter more
-            # for perceived quality than raw model capability.
             "silenceTimeoutSeconds": 300,
-            "responseDelaySeconds": 0.05,
-            "llmRequestDelaySeconds": 0.05,
+            # Turn-taking. The aggressive defaults chase latency and end the
+            # caller's turn mid-sentence -- a pause for breath reads as "done",
+            # so the model answers a fragment ("Is", "Please check"). These
+            # values trade ~0.3 s of response time for whole questions.
+            "startSpeakingPlan": {
+                "waitSeconds": 0.7,
+                # LiveKit predicts end-of-turn from the words themselves rather
+                # than silence alone, which is what saves a mid-sentence pause.
+                "smartEndpointingPlan": {"provider": "livekit"},
+                "transcriptionEndpointingPlan": {
+                    "onPunctuationSeconds": 0.3,
+                    # The real fix: an unfinished sentence gets ~2 s of grace.
+                    "onNoPunctuationSeconds": 2.0,
+                    "onNumberSeconds": 0.6,
+                },
+            },
             # Interruption sensitivity moved under stopSpeakingPlan; the old
             # top-level numWordsToInterruptAssistantSpeech is now rejected with
             # "property should not exist" and fails the whole request.
-            "stopSpeakingPlan": {"numWords": 2},
-            "backgroundDenoisingEnabled": True,
+            # numWords=2 let a cough or "mm-hmm" cut the assistant off.
+            "stopSpeakingPlan": {"numWords": 3, "voiceSeconds": 0.3, "backoffSeconds": 1.0},
+            # Replaces the retired `backgroundDenoisingEnabled` flag.
+            "backgroundSpeechDenoisingPlan": {"smartDenoisingPlan": {"enabled": True}},
             "endCallMessage": "Thanks for calling. Goodbye!",
         }
 
@@ -122,6 +164,12 @@ class VapiClient:
                     }
                 ],
             }
+            # `server.secret` only guards the webhook URL -- Vapi sends nothing to
+            # the custom-llm URL unless we ask for it here, and the endpoint's auth
+            # dependency then 401s every turn, ending the call with
+            # `pipeline-error-custom-llm-401-unauthorized`.
+            if secret := cfg.webhook_secret:
+                payload["model"]["headers"] = {"x-vapi-secret": secret.get_secret_value()}
         else:
             payload["model"] = {
                 "provider": "openai",
@@ -158,7 +206,9 @@ class VapiClient:
                                 "required": ["query"],
                             },
                         },
-                        "server": {"url": f"{base}/api/v1/vapi/webhook"},
+                        # A tool-level server overrides the assistant's, secret
+                        # included, so it has to carry the secret itself.
+                        "server": _server_block(f"{base}/api/v1/vapi/webhook", cfg.webhook_secret),
                     }
                 ],
             }

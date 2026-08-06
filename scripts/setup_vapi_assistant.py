@@ -70,13 +70,14 @@ async def run(args: argparse.Namespace) -> int:
             first_message=args.first_message,
             use_custom_llm=args.mode == "custom-llm",
         )
-        if secret := settings.vapi.webhook_secret:
-            payload["server"]["secret"] = secret.get_secret_value()
-
         if args.print_only:
+            # build_assistant_payload embeds the shared secret in every place Vapi
+            # needs it (assistant server, tool server, custom-llm headers).
             redacted = json.loads(json.dumps(payload))
             if "secret" in redacted.get("server", {}):
                 redacted["server"]["secret"] = "***"
+            if "x-vapi-secret" in redacted.get("model", {}).get("headers", {}):
+                redacted["model"]["headers"]["x-vapi-secret"] = "***"
             print(json.dumps(redacted, indent=2))
             return 0
 
