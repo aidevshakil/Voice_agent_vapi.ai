@@ -69,6 +69,12 @@ class EmbeddingSettings(BaseModel):
     model: str = "BAAI/bge-small-en-v1.5"
     dimensions: int = Field(default=384, gt=0)
     batch_size: int = Field(default=64, gt=0)
+    # Where local model weights are cached. Unset uses the library default, which
+    # is under the system temp dir -- fine locally, wrong on a platform that
+    # builds and runs in different containers, because the ~130 MB download then
+    # lands on the first live query instead of during the build. Point this at a
+    # path inside the project and the build warms it.
+    cache_dir: Path | None = None
 
 
 class VectorStoreSettings(BaseModel):
