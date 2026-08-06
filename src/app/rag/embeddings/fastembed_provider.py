@@ -7,6 +7,7 @@ no torch dependency, ~10-20 ms per query on CPU for bge-small.
 from __future__ import annotations
 
 from collections.abc import Sequence
+from pathlib import Path
 from threading import Lock
 
 from app.core.exceptions import ConfigurationError, ProviderError
@@ -35,9 +36,10 @@ def _prefix_for(model: str, table: dict[str, str]) -> str:
 class FastEmbedProvider(EmbeddingProvider):
     name = "fastembed"
 
-    def __init__(self, model: str, batch_size: int = 64) -> None:
+    def __init__(self, model: str, batch_size: int = 64, cache_dir: Path | None = None) -> None:
         self._model_name = model
         self._batch_size = batch_size
+        self._cache_dir = cache_dir
         self._query_prefix = _prefix_for(model, _QUERY_PREFIXES)
         self._doc_prefix = _prefix_for(model, _DOC_PREFIXES)
         self._model: object | None = None
@@ -58,7 +60,11 @@ class FastEmbedProvider(EmbeddingProvider):
                 ) from exc
             logger.info("loading fastembed model=%s (first run downloads weights)", self._model_name)
             try:
-                self._model = TextEmbedding(model_name=self._model_name)
+                kwargs: dict[str, object] = {"model_name": self._model_name}
+                if self._cache_dir is not None:
+                    self._cache_dir.mkdir(parents=True, exist_ok=True)
+                    kwargs["cache_dir"] = str(self._cache_dir)
+                self._model = TextEmbedding(**kwargs)  # type: ignore[arg-type]
             except Exception as exc:
                 raise ProviderError(f"failed to load fastembed model: {exc}") from exc
             return self._model

@@ -457,6 +457,11 @@ auth enforcement, and path-traversal rejection.
 
 ## Deployment
 
+For a hosted setup — React UI on Vercel, API on Render, both free tier — follow
+[docs/DEPLOYMENT.md](docs/DEPLOYMENT.md). It also retires ngrok, since the API
+gets a permanent HTTPS URL. The rest of this section covers running the API
+yourself.
+
 Run it directly with uvicorn:
 
 ```bash
@@ -542,6 +547,7 @@ the same interface, not a stub.
 
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — request flow, design decisions and their trade-offs
 - [docs/VAPI_SETUP.md](docs/VAPI_SETUP.md) — Vapi walkthrough, both integration modes, phone setup
+- [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) — shipping the UI to Vercel and the API to Render
 - [docs/API.md](docs/API.md) — every endpoint with request/response examples
 
 ## License

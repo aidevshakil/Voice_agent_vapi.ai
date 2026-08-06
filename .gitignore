@@ -27,6 +27,7 @@ htmlcov/
 data/vector_store/
 data/uploads/
 data/cache/
+data/model_cache/
 logs/
 *.log
 

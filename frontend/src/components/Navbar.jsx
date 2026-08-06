@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { NavLink } from 'react-router-dom';
 import { Mic, Database, Cpu } from 'lucide-react';
+import { apiFetch } from '../lib/api.js';
 
 export default function Navbar() {
   const [health, setHealth] = useState(null);
@@ -8,7 +9,7 @@ export default function Navbar() {
   useEffect(() => {
     const fetchHealth = async () => {
       try {
-        const res = await fetch('/api/v1/health/ready');
+        const res = await apiFetch('/api/v1/health/ready');
         if (res.ok) {
           const data = await res.json();
           setHealth(data);

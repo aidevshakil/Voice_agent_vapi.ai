@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Upload, FileText, Trash2, RefreshCw, Plus, CheckCircle, AlertCircle, Database } from 'lucide-react';
+import { apiFetch } from '../lib/api.js';
 
 export default function Documents() {
   const [docData, setDocData] = useState(null);
@@ -12,7 +13,7 @@ export default function Documents() {
   const fetchDocs = async () => {
     try {
       setLoading(true);
-      const res = await fetch('/api/v1/documents');
+      const res = await apiFetch('/api/v1/documents');
       if (res.ok) {
         const data = await res.json();
         setDocData(data);
@@ -38,7 +39,7 @@ export default function Documents() {
     formData.append('file', file);
 
     try {
-      const res = await fetch('/api/v1/documents/upload', {
+      const res = await apiFetch('/api/v1/documents/upload', {
         method: 'POST',
         body: formData,
       });
@@ -63,7 +64,7 @@ export default function Documents() {
 
     try {
       setUploading(true);
-      const res = await fetch('/api/v1/documents/text', {
+      const res = await apiFetch('/api/v1/documents/text', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ text: pasteText, source: sourceLabel }),
@@ -83,7 +84,7 @@ export default function Documents() {
 
   const handleDeleteSource = async (source) => {
     try {
-      const res = await fetch(`/api/v1/documents/${encodeURIComponent(source)}`, {
+      const res = await apiFetch(`/api/v1/documents/${encodeURIComponent(source)}`, {
         method: 'DELETE',
       });
       if (res.ok) {
